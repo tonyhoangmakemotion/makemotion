@@ -41,8 +41,18 @@ const section = (title, body, aside = '') =>
   `<section class="group"><div class="group-title"><b>${title}</b>${aside ? `<span>${aside}</span>` : ''}</div>${body}</section>`;
 const field = (id, label, value, attrs = '') =>
   `<div class="field"><label for="${id}">${label}</label><input id="${id}" value="${esc(value)}" ${attrs}></div>`;
-const numField = (id, label, value, step) =>
-  `<div class="field"><label for="${id}">${label}</label><input type="number" id="${id}" data-prop="${id.slice(2)}" step="${step}" value="${value}"></div>`;
+const UNIT = { x: 'px', y: 'px', w: 'px', h: 'px', cx: 'px', cy: 'px', opacity: '', scale: '×', zoom: '×' };
+const numField = (id, label, value, step) => {
+  const u = UNIT[id.slice(2)];
+  return `<div class="field"><label for="${id}">${label}</label><div class="unit-input"><input type="number" id="${id}" data-prop="${id.slice(2)}" step="${step}" value="${value}">${u ? `<span class="unit">${u}</span>` : ''}</div></div>`;
+};
+// Easing curve preview (how the move into this keyframe accelerates), drawn from the real curve.
+function easeCurve(name) {
+  const E = EASINGS[name] || EASINGS.smooth;
+  const pts = [];
+  for (let i = 0; i <= 40; i++) { const u = i / 40; const v = name === 'hold' ? (u < 1 ? 0 : 1) : E(u); pts.push(`${(12 + u * 276).toFixed(1)},${(118 - v * 96).toFixed(1)}`); }
+  return `<div class="ease-curve" aria-hidden="true"><svg viewBox="0 0 300 130" preserveAspectRatio="none"><polyline points="${pts.join(' ')}" fill="none" stroke="#f2f2f4" stroke-width="2.2" vector-effect="non-scaling-stroke"/><circle cx="12" cy="118" r="4.5" fill="var(--accent)"/><circle cx="288" cy="22" r="4.5" fill="var(--accent)"/></svg></div><span class="ease-name">${EASE_LABELS[name] || name}</span>`;
+}
 
 function keyframeControls(target) {
   const k = keyAt(target.keys, S.t);
@@ -51,7 +61,8 @@ function keyframeControls(target) {
     <select id="key-ease" aria-label="How it moves into this keyframe">
       ${Object.keys(EASINGS).map((e) => `<option value="${e}" ${k.ease === e ? 'selected' : ''}>${EASE_LABELS[e]}</option>`).join('')}
     </select>
-    <button class="btn small danger" id="key-del" ${target.keys.length <= 1 ? 'disabled' : ''}>Delete</button></div>`;
+    <button class="btn small danger" id="key-del" ${target.keys.length <= 1 ? 'disabled' : ''}>Delete</button></div>
+    <div class="field"><span>Move easing</span>${easeCurve(k.ease)}</div>`;
 }
 
 function propsBlock(target, title) {
@@ -162,10 +173,10 @@ function windowBlock(l) {
 }
 
 function animateBlock(l) {
-  const btn = (kind, label, dir) => `<button class="btn small" data-${dir}="${kind}">${label}</button>`;
+  const btn = (kind, label, dir) => `<button data-${dir}="${kind}">${label}</button>`;
   return section('Animate', `
-    <div class="anim-row"><span>Enter</span>${btn('pop', 'Pop', 'enter')}${btn('slide', 'Slide up', 'enter')}${btn('fade', 'Fade', 'enter')}</div>
-    <div class="anim-row"><span>Exit</span>${btn('pop', 'Pop', 'exit')}${btn('slide', 'Slide down', 'exit')}${btn('fade', 'Fade', 'exit')}</div>
+    <div class="field"><span>Appears with</span><div class="segbar" role="group" aria-label="Appears with">${btn('pop', 'Pop', 'enter')}${btn('slide', 'Slide', 'enter')}${btn('fade', 'Fade', 'enter')}</div></div>
+    <div class="field"><span>Leaves with</span><div class="segbar" role="group" aria-label="Leaves with">${btn('pop', 'Pop', 'exit')}${btn('slide', 'Slide', 'exit')}${btn('fade', 'Fade', 'exit')}</div></div>
     <p class="note">Starts at the playhead (${fmt(S.t)}).</p>${trimNote(l)}
     <div class="row"><button class="btn small" id="w-storm" title="Pile up 12 copies of this window over one second, for chaotic montage moments">Window storm</button></div>`);
 }
@@ -200,13 +211,13 @@ function trimNote(l) {
 }
 
 function cameraBlock() {
-  return section('Camera', `<div class="row">
-    <button class="btn small" data-shot="close">Close-up</button>
-    <button class="btn small" data-shot="medium">Medium</button>
-    <button class="btn small" data-shot="wide">Whole desktop</button>
+  return section('Camera', `<div class="field"><span>Camera into this window</span><div class="segbar" role="group" aria-label="Camera into this window">
+    <button data-trans="whip" title="A fast whip pan from the current shot to this window, with motion blur">Whip</button>
+    <button data-trans="cut" title="A hard cut from the current shot to this window">Cut</button>
+    <button data-shot="medium" title="A smooth glide to frame this window">Glide</button>
+    <button data-shot="close" title="A close-up on this window">Close-up</button></div></div>
+    <div class="row"><button class="btn small" data-shot="wide">Whole desktop</button>
     <button class="btn small" data-shot="mouse">Move mouse here</button></div>
-    <div class="row"><button class="btn small" data-trans="whip" title="A fast whip pan from the current shot to this window, with motion blur">Whip pan here</button>
-    <button class="btn small" data-trans="cut" title="A hard cut from the current shot to this window">Cut to here</button></div>
     <p class="note">Each adds a keyframe at the playhead.</p>`);
 }
 
@@ -636,9 +647,10 @@ export function renderInspector() {
   const body = $('insp-body');
   const scroll = $('insp').scrollTop;
   const l = selectedLayer();
-  let title = 'Inspector', html = '';
+  let title = 'Inspector', html = '', subtitle = '';
   if (l) {
     title = APPS[l.type]?.label || 'Window';
+    subtitle = l.name && l.name !== title ? l.name : (APPS[l.type]?.chip || '').toUpperCase();
     html = field('layer-name', 'Layer name (only you see this)', l.name)
       + windowBlock(l) + contentBlock(l) + animateBlock(l)
       + propsBlock({ keys: l.keys, props: LAYER_PROPS }, 'Position and size')
@@ -667,7 +679,7 @@ export function renderInspector() {
       <div class="row"><button class="btn small" id="insp-add">+ Add window</button></div>
       <p class="note">You can also drop images, videos or audio files onto the stage or the timeline.</p></section>`;
   }
-  $('insp-title').textContent = title;
+  $('insp-title').innerHTML = `<span>${esc(title)}</span>${subtitle ? `<small>${esc(subtitle)}</small>` : ''}`;
   body.innerHTML = html;
   $('insp').scrollTop = scroll;
   bind(l);
@@ -688,7 +700,7 @@ function bind(l) {
       });
     });
     on('key-add', 'click', () => { upsertKey(target.keys, S.t, {}, target.props); changed({ inspector: true }); });
-    on('key-ease', 'change', (e) => { const k = keyAt(target.keys, S.t); if (k) { k.ease = e.target.value; changed(); } });
+    on('key-ease', 'change', (e) => { const k = keyAt(target.keys, S.t); if (k) { k.ease = e.target.value; changed({ inspector: true }); } });
     on('key-del', 'click', () => { const k = keyAt(target.keys, S.t); if (k && removeKey(target.keys, k)) changed({ inspector: true }); });
   }
   on('insp-add', 'click', (e) => { e.stopPropagation(); hooks.openAddMenu(); });

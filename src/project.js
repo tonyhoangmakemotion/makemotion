@@ -260,59 +260,69 @@ export function createLaunchTemplate() {
   return migrate(p);
 }
 
-// ---------- Launch film template (about 30s) ----------
+// ---------- Launch film template (about 33s) ----------
 // Built from the structure of professional startup launch videos (docs/launch-video-analysis.md):
-// hook line → tension → logo reveal → product with spotlight → proof (metric chain) → close + CTA.
-// No hard cuts: scenes change by blur-outs, the logo dot and a wipe. Studio backdrop, one accent.
-export function createLaunchFilmTemplate(accent = '#2ee6a0') {
+// hook line → tension → logo reveal → the product, one feature at a time (spotlight, click,
+// numbers) → proof (metric chain) → promise → logo lockup → CTA. No hard cuts: lines blur out,
+// the logo grows and settles, a light wipe bridges product and proof. Black and white only, so
+// your logo and your product's own colours are the only colour on screen.
+export function createLaunchFilmTemplate(accent = '#f4f4f6') {
   const p = createDemoProject();
   p.name = 'Launch film';
-  p.duration = 30;
+  p.duration = 33;
   p.layers = []; p.captions = []; p.audio = [];
-  p.wallpaper = { ...p.wallpaper, kind: 'studio-glow', color1: accent, blur: 0, dim: 0 };
+  p.wallpaper = { ...p.wallpaper, kind: 'studio-glow', color1: '#ffffff', blur: 0, dim: 0 };
   p.look = { ...DEFAULT_LOOK, chrome: 'studio', depth: 0.6, grain: 0, vignette: 0.12, contrast: 0, preset: 'custom' }; // true black, no lifted floor
-  p.camera = { drift: 0.15, shakes: [], blurs: [], keys: [{ t: 0, ease: 'smooth', cx: 960, cy: 540, zoom: 1 }], auto: true, autoStyle: 'smooth' };
-  p.cursor = { ...p.cursor, hidden: false, size: 1.35, color: 'light', clickStyle: 'ripple', keys: [{ t: 0, ease: 'smooth', x: 2100, y: 1100 }], events: [] };
+  p.camera = { drift: 0.12, shakes: [], blurs: [], keys: [{ t: 0, ease: 'smooth', cx: 960, cy: 540, zoom: 1 }], auto: true, autoStyle: 'smooth' };
+  p.cursor = { ...p.cursor, hidden: false, size: 1.35, color: 'light', clickStyle: 'ripple', keys: [{ t: 0, ease: 'smooth', x: 2500, y: 1400 }], events: [] };
   p.autoSfx = { clicks: true, messages: true, typing: false, volume: 0.6 };
+  const mono = { accent, pillText: '#0b0b0d' };
   const add = (type, tIn, tOut, box, data = {}, enter = 'fade', exit = 'fade') => {
     const l = makeLayer(type, tIn, p);
-    l.data = { ...l.data, accent, ...data };
+    l.data = { ...l.data, ...mono, ...data };
     const base = { ...l.keys[l.keys.length - 1], ...box, opacity: 1, scale: 1 };
     l.keys = [{ ...base, t: tIn, ease: 'smooth' }];
     applyEnter(l, tIn, enter);
     if (tOut != null) applyExit(l, tOut, exit);
+    if (type === 'sentence' || type === 'metrics') l.name = String(l.data.text || l.data.chain || '').replace(/\[([^\]>]*?)[\d.,]+\s*>\s*([\d.,]+)([^\]]*)\]/g, '$1$2$3').replace(/[*[\]{}~]/g, '').slice(0, 32);
+    if (type === 'spotlight') l.name = `Spotlight: ${l.data.label}`;
     p.layers.push(l);
     return l;
   };
   const center = (w, h, dy = 0) => ({ x: (1920 - w) / 2, y: (1080 - h) / 2 + dy, w, h });
   const sfx = (t, src, v = 0.4) => p.audio.push({ id: newId('au'), src, track: 'sfx', start: t, offset: 0, volume: v, name: src.slice(4) });
+  const line = (tIn, tOut, text, extra = {}) => add('sentence', tIn, tOut, center(1500, 260), { text, start: tIn + 0.08, exitAt: tOut - 0.4, ...extra });
 
-  // Hook and tension: one line each, words blur in, then the line blurs out.
-  add('sentence', 0.15, 2.75, center(1500, 260), { text: 'You just got [7>22] warm leads', start: 0.25, exitAt: 2.3 });
-  add('sentence', 2.75, 5.15, center(1500, 260), { text: 'But which post actually [sent them?]', start: 2.8, exitAt: 4.75 });
-  // Reveal.
-  add('logoreveal', 5.1, 8.0, center(1500, 420), { name: 'Lumen', tagline: 'Know what brings you customers.', start: 5.15 });
+  // Hook and tension: one line each; words blur in, then the line blurs out.
+  line(0.15, 2.75, 'You just got [7>22] new customers');
+  line(2.75, 5.15, 'But which post actually {sent them?}');
+  // Reveal: your logo pops up big and settles next to the name.
+  add('logoreveal', 5.1, 8.4, center(1500, 420), { name: 'Lumen', tagline: 'Know what brings you customers.', start: 5.15 });
   sfx(5.1, 'sfx:whoosh', 0.45);
-  // Product: the dashboard, the camera pushes into what matters, spotlight + label.
-  add('sentence', 8.1, 10.6, { x: 210, y: 40, w: 1500, h: 120 }, { text: 'It shows you [where the money comes from]', start: 8.15, size: 54, exitAt: 10.2 });
-  add('dashboard', 8.3, 16.0, center(1240, 720, 70), { brand: 'Lumen', countStart: 8.9, chartStart: 9.4, listStart: 10.2, insightStart: 12.0 }, 'slide');
-  add('spotlight', 10.8, 13.4, { x: 352, y: 286, w: 560, h: 150 }, { label: 'Revenue from content', start: 10.85 });
-  add('notification', 13.6, 15.9, { x: 1380, y: 120, w: 440, h: 104 }, { app: 'Payments', title: 'Payment received', body: 'You received $1,200 from a new customer', color: accent }, 'slide');
+  // Product, one feature at a time: headline on top, the app below, the camera follows the spotlight.
+  add('sentence', 8.5, 11.0, { x: 210, y: 40, w: 1500, h: 120 }, { text: 'See [where the money comes from]', start: 8.55, size: 54, exitAt: 10.6 });
+  add('dashboard', 8.6, 18.6, center(1240, 720, 70), { brand: 'Lumen', countStart: 9.2, chartStart: 9.7, listStart: 10.5, insightStart: 14.6 }, 'slide');
+  add('spotlight', 11.0, 13.4, { x: 352, y: 286, w: 560, h: 150 }, { label: 'Revenue from content', start: 11.05 });
+  add('sentence', 13.5, 16.2, { x: 210, y: 40, w: 1500, h: 120 }, { text: 'and [every payment] the moment it lands', start: 13.55, size: 54, exitAt: 15.8 });
+  add('notification', 13.9, 16.4, { x: 1380, y: 150, w: 440, h: 104 }, { app: 'Payments', title: 'Payment received', body: 'You received $1,200 from a new customer', color: '#8a8a94' }, 'slide');
+  add('spotlight', 16.4, 18.4, { x: 960, y: 560, w: 560, h: 270 }, { label: 'Revenue over time', start: 16.45, labelBelow: true });
   // Bridge to proof without a cut.
-  add('wipe', 15.7, 16.9, { x: 0, y: 0, w: 1920, h: 1080 }, { at: 16.25, dur: 1.0, style: 'accent', color: accent });
-  sfx(15.8, 'sfx:whoosh', 0.5);
-  add('metrics', 16.4, 20.6, center(1600, 220), { chain: '2.7K Clicks > 5.5% > 148 Leads > 19% > 28 Calls > 41% > 12 Customers', start: 16.5, step: 0.42, size: 64 });
-  add('sentence', 20.7, 23.3, center(1500, 260), { text: 'Stop making content for [views.]', start: 20.75, exitAt: 22.9 });
-  // Close.
-  add('logoreveal', 23.3, 26.8, center(1500, 420), { name: 'Lumen', tagline: 'Know what brings you customers.', start: 23.35 });
-  add('sentence', 26.8, null, center(1500, 260), { text: 'Start your [free trial] today.', start: 26.9 });
+  add('wipe', 18.4, 19.6, { x: 0, y: 0, w: 1920, h: 1080 }, { at: 18.95, dur: 1.0, style: 'light' });
+  sfx(18.5, 'sfx:whoosh', 0.5);
+  add('metrics', 19.1, 23.2, center(1600, 240), { chain: '2.7K Clicks > 5.5% > 148 Leads > 19% > 28 Calls > 41% > 12 Customers', start: 19.2, step: 0.42, size: 64 });
+  line(23.3, 25.9, 'Stop making content for [views.]');
+  line(25.9, 28.4, 'Double down on {what actually works.}');
+  // Close: logo lockup, then the call to action.
+  add('logoreveal', 28.4, 31.0, center(1500, 420), { name: 'Lumen', tagline: 'Know what brings you customers.', start: 28.45 });
+  add('sentence', 31.0, null, center(1500, 260), { text: 'Start your [free trial] today.', start: 31.05 });
   p.cursor.keys.push(
-    { t: 10.0, ease: 'smooth', x: 1500, y: 860 },
-    { t: 11.0, ease: 'smooth', x: 760, y: 380 },
-    { t: 13.3, ease: 'smooth', x: 1240, y: 640 },
-    { t: 15.6, ease: 'smooth', x: 2100, y: 1100 },
+    { t: 10.4, ease: 'smooth', x: 1500, y: 860 },
+    { t: 11.3, ease: 'smooth', x: 760, y: 380 },
+    { t: 13.2, ease: 'smooth', x: 1150, y: 640 },
+    { t: 16.6, ease: 'smooth', x: 1220, y: 690 },
+    { t: 18.2, ease: 'smooth', x: 2500, y: 1400 },
   );
-  p.cursor.events.push({ id: newId('ev'), t: 11.1, type: 'click' });
+  p.cursor.events.push({ id: newId('ev'), t: 11.45, type: 'click' }, { id: newId('ev'), t: 16.75, type: 'click' });
   return migrate(p);
 }
 

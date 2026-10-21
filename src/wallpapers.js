@@ -446,7 +446,7 @@ export const WALLPAPERS = [
     id: 'studio-glow', label: 'Studio glow',
     draw(g, W, H, wp) {
       g.fillStyle = '#050506'; g.fillRect(0, 0, W, H);
-      const c = wp.color1 && wp.color1 !== '#1d2433' ? wp.color1 : '#2ee66b';
+      const c = wp.color1 && wp.color1 !== '#1d2433' ? wp.color1 : '#ffffff';
       const r = g.createRadialGradient(W * 0.5, H * 0.7, 0, W * 0.5, H * 0.7, H * 0.65);
       r.addColorStop(0, c + '30'); r.addColorStop(0.5, c + '0c'); r.addColorStop(1, 'rgba(0,0,0,0)');
       g.fillStyle = r; g.fillRect(0, 0, W, H);

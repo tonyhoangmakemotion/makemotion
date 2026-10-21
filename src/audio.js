@@ -18,13 +18,13 @@ setAudioContextGetter(audioContext);
 export const SFX = {
   click: 'Mouse click', double: 'Double click', pop: 'Pop', ding: 'Message ding', send: 'Message sent',
   notify: 'Notification', whoosh: 'Whoosh', typing: 'Keyboard typing', error: 'Error buzz', shutter: 'Camera shutter',
-  key: 'Key press',
+  key: 'Key press', swish: 'Swish', riser: 'Riser (build-up)', impact: 'Impact (boom)', snap: 'Snap',
 };
 
 const sfxCache = new Map();
 
 function synth(name, sr) {
-  const len = { click: 0.06, double: 0.18, pop: 0.16, ding: 1.1, send: 0.3, notify: 0.9, whoosh: 0.7, typing: 1.6, error: 0.55, shutter: 0.3, key: 0.05 }[name] || 0.2;
+  const len = { click: 0.06, double: 0.18, pop: 0.16, ding: 1.1, send: 0.3, notify: 0.9, whoosh: 0.7, typing: 1.6, error: 0.55, shutter: 0.3, key: 0.05, swish: 0.28, riser: 1.8, impact: 1.4, snap: 0.09 }[name] || 0.2;
   const n = Math.floor(len * sr);
   const out = new Float32Array(n);
   let seed = 1234567;
@@ -72,6 +72,22 @@ function synth(name, sr) {
       for (let i = 0; i < 0.22 * sr && s0 + i < n; i++) out[s0 + i] += 0.22 * Math.sign(Math.sin(2 * Math.PI * 180 * i / sr)) * Math.min(1, (0.22 * sr - i) / 400);
     } break;
     case 'shutter': tick(0, 0.8, 1200, 0.02); tick(0.11, 0.6, 900, 0.03); break;
+    case 'swish': { // short airy pass, for words and cards arriving
+      let lp = 0;
+      for (let i = 0; i < n; i++) { const t = i / n; lp += 0.35 * (rnd() - lp); out[i] += (rnd() - lp) * Math.sin(Math.PI * t) ** 2 * 0.45; }
+      break;
+    }
+    case 'riser': { // noise + rising tone that swells into the next beat (end it on the drop)
+      let ph = 0;
+      for (let i = 0; i < n; i++) { const t = i / n; ph += (2 * Math.PI * (220 + 900 * t * t)) / sr; out[i] += (0.16 * Math.sin(ph) + 0.22 * rnd()) * t * t; }
+      break;
+    }
+    case 'impact': { // low boom with a short crash, for logo reveals and drops
+      let ph = 0;
+      for (let i = 0; i < n; i++) { const t = i / sr; ph += (2 * Math.PI * (38 + 70 * Math.exp(-t / 0.08))) / sr; out[i] += 0.9 * Math.sin(ph) * Math.exp(-t / 0.45) + 0.12 * rnd() * Math.exp(-t / 0.3); }
+      break;
+    }
+    case 'snap': tick(0, 0.8, 2600, 0.01); tick(0.004, 0.5, 1700, 0.012); break;
     default: tick(0, 0.5);
   }
   return out;

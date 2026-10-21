@@ -20,6 +20,7 @@ import { initTimeline, timelineKeys , splitHere, cutRange, hasRange, clearRange 
 import { initIO } from './io.js';
 import { initReview } from './review.js';
 import { initAI } from './ai.js';
+import { initScenes } from './scenes.js';
 import { initPreview, openPreview, isPreviewOpen, drawPreview } from './preview.js';
 import { inCameraMode, isCamRecording, camZoomAt, camPanBy, camSet, camFrame, camTick, stopCamRecording, CAM_MIN, CAM_MAX } from './camera.js';
 
@@ -805,6 +806,7 @@ initTimeline();
 initIO();
 initReview();
 initAI();
+initScenes();
 initPreview();
 hooks.project();
 hooks.layers();

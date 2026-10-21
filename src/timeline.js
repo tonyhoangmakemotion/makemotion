@@ -125,6 +125,14 @@ function render() {
     if (r.kind === 'cursor') P.cursor.events.forEach((e) => tr.appendChild(eventPill(e)));
     if (r.kind === 'camera') (P.camera.shakes || []).forEach((sh) => addMark(tr, sh.t, '#ff5f5f', `Camera shake at ${fmt(sh.t)}`));
     if (r.kind === 'camera') (P.camera.blurs || []).forEach((b) => addMark(tr, b.t, '#c9b6ff', `Blur transition at ${fmt(b.t)}`));
+    // Name the camera's moves on its row: a hold key is a cut, a short move a whip.
+    if (r.kind === 'camera') (r.keys || []).forEach((k, i, ks) => {
+      if (!i) return;
+      const dt = k.t - ks[i - 1].t;
+      const tag = k.ease === 'hold' ? 'cut' : dt <= 0.35 && dt > 0.05 ? 'whip' : '';
+      if (!tag) return;
+      const lab = el('span', 'cam-tag', tr); lab.textContent = tag; lab.style.left = pct(k.t);
+    });
     if (r.kind === 'captions') { tr.title = 'Double-click to add a caption here'; P.captions.forEach((c) => tr.appendChild(captionBlock(c))); }
     if (r.kind === 'audio') {
       tr.title = 'Drop an audio file here, or double-click to choose one';
@@ -178,7 +186,8 @@ function lifeBar(tr, l) {
     ghost.style.left = pct(range0.first); ghost.style.width = `calc(${pct(range0.natural)} - ${pct(range0.first)})`;
   }
   const bar = el('div', 'lifebar' + (S.sel?.id === l.id ? ' sel' : ''), tr);
-  bar.innerHTML = '<span class="grip l" title="Drag to trim the start"></span><span class="grip r" title="Drag to trim the end"></span>';
+  bar.innerHTML = '<span class="lb-name"></span><span class="grip l" title="Drag to trim the start"></span><span class="grip r" title="Drag to trim the end"></span>';
+  bar.querySelector('.lb-name').textContent = l.title || l.name || '';
   const place = () => {
     const r = layerRange(l, D());
     bar.style.left = pct(r.start); bar.style.width = `calc(${pct(r.end)} - ${pct(r.start)})`;

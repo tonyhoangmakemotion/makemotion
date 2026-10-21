@@ -461,11 +461,14 @@ body.recording .stage { box-shadow: 0 0 0 2px #ff5f5f inset; }
 .layers.panel { overflow: hidden; }
 .win-pane { display: flex; flex-direction: column; padding-top: 10px; overflow: auto; flex: 1; min-height: 0; }
 .ai-pane { display: flex; flex-direction: column; gap: 10px; padding: 12px; min-height: 0; flex: 1; overflow: hidden; }
-.layers.prompt-tab .foot > .field, .layers.prompt-tab .foot > p, .layers.prompt-tab .foot > .note { display: none; }
-.layers.prompt-tab .foot { padding: 10px 12px; }
+.layers.prompt-tab .foot > .field, .layers.prompt-tab .foot > p, .layers.prompt-tab .foot > .note, .layers.scenes-tab .foot > .field, .layers.scenes-tab .foot > p, .layers.scenes-tab .foot > .note { display: none; }
+.layers.prompt-tab .foot, .layers.scenes-tab .foot { padding: 10px 12px; }
 @media (max-width: 1500px) { #chip-fps, #chip-look { display: none; } .bar .seg button { padding: 9px 11px; } }
 .ai-pane[hidden], .win-pane[hidden] { display: none; }
 .ai-log { flex: 1; min-height: 60px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.ai-qs { margin: 6px 0 2px; padding-left: 18px; display: grid; gap: 3px; }
+.ai-mem { margin: 0; font-size: 11.5px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.ai-mem .link { background: none; border: 0; padding: 0; color: var(--fg-2); text-decoration: underline; cursor: pointer; font: inherit; }
 .ai-empty { color: var(--muted); font-size: 13px; line-height: 1.55; padding: 4px 2px; }
 .ai-empty b { color: var(--fg); }
 .ai-msg { font-size: 14px; line-height: 1.5; padding: 12px 14px; border-radius: 14px; white-space: pre-wrap; }
@@ -483,6 +486,43 @@ body.recording .stage { box-shadow: 0 0 0 2px #ff5f5f inset; }
 .ai-box textarea:focus { border-color: var(--accent); outline: none; }
 .ai-send { align-self: flex-end; }
 @media (prefers-reduced-motion: reduce) { .ai-msg.thinking { animation: none; } }
+
+/* ---- Mockup parity: inspector header, unit fields, segmented bars, easing curve ---- */
+#insp-title { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); padding: 16px 18px 14px; margin-bottom: 4px; }
+#insp-title span { font: 600 16px/1.2 var(--ui); color: var(--fg); }
+#insp-title small { font: 400 13px/1.2 var(--ui); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
+.unit-input { display: flex; align-items: center; background: var(--field); border: 1px solid #26262d; border-radius: 11px; padding-right: 12px; }
+.unit-input:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.unit-input input, .field .unit-input input { border: 0 !important; background: transparent !important; box-shadow: none !important; flex: 1; min-width: 0; height: 44px; font: 500 15px var(--ui) !important; }
+.unit-input .unit { font: 400 13px var(--mono); color: var(--muted); }
+.segbar { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); border: 1px solid #26262d; border-radius: 12px; overflow: hidden; }
+.segbar button { height: 42px; border: 0; border-right: 1px solid #26262d; background: transparent; color: var(--fg-2); font: 500 14px var(--ui); cursor: pointer; }
+.segbar button:last-child { border-right: 0; }
+.segbar button:hover { background: #1f1f26; color: #fff; }
+.segbar button:active { background: var(--accent-wash); }
+.ease-curve { height: 120px; border: 1px solid #26262d; border-radius: 12px; background-image: linear-gradient(#1c1c22 1px, transparent 1px), linear-gradient(90deg, #1c1c22 1px, transparent 1px); background-size: 25% 33.3%; }
+.ease-curve svg { width: 100%; height: 100%; display: block; }
+.ease-name { font: 400 13px var(--mono); color: var(--fg-2); }
+.field input[type="range"] { accent-color: var(--accent); height: 22px; }
+.scene-pane { display: flex; flex-direction: column; min-height: 0; flex: 1; overflow: hidden; }
+.scene-pane[hidden] { display: none; }
+.scene-meta { margin: 0; padding: 14px 14px 6px; font-size: 13px; line-height: 1.5; color: var(--muted); }
+.scene-meta b { color: var(--fg); font-weight: 600; }
+.scene-list { list-style: none; margin: 0; padding: 8px 12px 12px; display: flex; flex-direction: column; gap: 6px; overflow: auto; flex: 1; min-height: 0; }
+.scene-list .empty { color: var(--muted); font-size: 13px; padding: 6px 2px; }
+.scene-card { width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--line); background: #111115; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.scene-card:hover { background: #16161b; border-color: var(--line-2); }
+.scene-card.on { background: var(--accent-wash); border-color: rgba(124,92,255,0.65); }
+.scene-thumb { flex: none; width: 46px; height: 32px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.08); display: grid; place-items: center; font: 600 9px/1 var(--mono); letter-spacing: 0.04em; color: rgba(255,255,255,0.75); text-transform: uppercase; }
+.scene-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.scene-text b { font: 600 15px/1.25 var(--ui); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scene-text small { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scene-time { font: 500 13px var(--mono); color: var(--fg-2); }
+.layers.scenes-tab .foot { display: none; }
+.scene-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; border-top: 1px solid var(--line); }
+.lifebar .lb-name { position: absolute; left: 34px; right: 24px; top: 50%; transform: translateY(-50%); font: 500 13px/1 var(--ui); color: #f2f2f4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.cam-tag { position: absolute; top: 2px; margin-left: -12px; font: 400 11px/1 var(--mono); color: var(--muted); pointer-events: none; }
+.track-camera .diamond { background: var(--accent) !important; }
 .count-badge { font: 600 11px/1 var(--mono); background: var(--accent); color: #fff; border-radius: 9px; padding: 3px 6px; }
 .review-pop { position: fixed; z-index: 16; top: calc(60px + env(safe-area-inset-top, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); width: min(420px, calc(100vw - 32px)); max-height: calc(100vh - 120px); overflow: auto; background: var(--panel); border: 1px solid var(--line-2); border-radius: 14px; padding: 16px; box-shadow: 0 24px 60px rgba(0,0,0,0.55); display: flex; flex-direction: column; gap: 12px; }
 .review-pop h4 { margin: 0; font: 600 15px/1 var(--ui); display: flex; gap: 8px; align-items: baseline; }
@@ -545,10 +585,12 @@ body.recording .stage { box-shadow: 0 0 0 2px #ff5f5f inset; }
   <aside class="panel layers" aria-label="Prompt and windows">
     <div class="ltabs" role="tablist">
       <button role="tab" data-ltab="prompt" aria-selected="true">Prompt</button>
+      <button role="tab" data-ltab="scenes" aria-selected="false">Scenes</button>
       <button role="tab" data-ltab="windows" aria-selected="false">Windows</button>
     </div>
     <div class="ai-pane" id="ai-pane">
       <div class="ai-log" id="ai-log" aria-live="polite"></div>
+      <p class="ai-mem" id="ai-mem" hidden><span></span> <button class="link" id="ai-mem-clear" type="button">Clear</button></p>
       <p class="note ai-note" id="ai-note" hidden>Building with Claude works when MakeMotion is opened in claude.ai. Everything else works here.</p>
       <div class="ai-chips">
         <button class="ai-chip" data-ai-chip="Make it punchier: faster beats and more camera moves">Make it punchier</button>
@@ -559,6 +601,15 @@ body.recording .stage { box-shadow: 0 0 0 2px #ff5f5f inset; }
         <textarea id="ai-input" rows="3" placeholder="Describe the video, or ask for a change…" aria-label="Describe the video"></textarea>
         <button class="btn primary ai-send" id="ai-send" aria-label="Send">Build</button>
         <button class="btn ai-send" id="ai-stop" hidden>Stop</button>
+      </div>
+    </div>
+    <div class="scene-pane" id="scene-pane" hidden>
+      <p class="scene-meta" id="scene-meta"></p>
+      <ul class="scene-list" id="scene-list"></ul>
+      <div class="scene-actions">
+        <button class="btn small" id="scene-add">+ Window</button>
+        <button class="btn small" id="scene-tpl">Templates</button>
+        <button class="btn small" id="scene-voice">Add voiceover</button>
       </div>
     </div>
     <div class="win-pane" id="win-pane" hidden>

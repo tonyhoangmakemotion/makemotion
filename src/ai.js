@@ -9,6 +9,7 @@ import { APP_LIST, APPS } from './apps/index.js';
 import { LOOKS } from './look.js';
 import { FORMATS, formatOf } from './format.js';
 import { S, $, hooks, changed, toast, esc, seek } from './store.js';
+import { SFX } from './audio.js';
 
 let sample = null;          // the capability, once resolved
 let busy = null;            // AbortController of the running call
@@ -38,11 +39,57 @@ function projectSummary() {
     return `- id ${l.id}: ${l.type} "${l.name}" from ${(l.in ?? k.t).toFixed(2)}s${end != null ? ` to ${end.toFixed(2)}s` : ''} at x${Math.round(k.x)} y${Math.round(k.y)} w${Math.round(k.w)} h${Math.round(k.h)}${l.hidden ? ' (hidden)' : ''}. Data: ${d}`;
   }).join('\n') || '(no windows yet)';
   const caps = (P.captions || []).map((c) => `- ${c.start}-${c.end}s: ${c.text}`).join('\n') || '(none)';
+  const media = Object.entries(P.media || {}).map(([id, m]) => `- ${id}: ${m.kind} "${m.name}"${m.duration ? ` ${m.duration.toFixed(1)}s` : ''}`).join('\n') || '(none uploaded)';
   return `Project "${P.name}": ${P.duration}s long, format ${formatOf(P)}, look ${P.look?.preset || 'custom'}, auto camera ${P.camera.auto ? `on (${P.camera.autoStyle || 'mixed'})` : 'off'}.
 Windows, back to front:
 ${windows}
 Captions:
-${caps}`;
+${caps}
+Uploaded media (use these ids in logoId, wordmarkId, mediaId):
+${media}`;
+}
+
+// ---------- What MakeMotion remembers (per browser) ----------
+// Lessons the user taught the AI ("remember" in a reply) and short outlines of videos built here,
+// so the next video starts from what worked before. Stored in localStorage; the user can clear it.
+const MEM_KEY = 'finischd.ai.memory.v1';
+function loadMem() {
+  try { const m = JSON.parse(localStorage.getItem(MEM_KEY) || '{}'); return { lessons: Array.isArray(m.lessons) ? m.lessons : [], projects: Array.isArray(m.projects) ? m.projects : [] }; }
+  catch { return { lessons: [], projects: [] }; }
+}
+function saveMem(m) { try { localStorage.setItem(MEM_KEY, JSON.stringify(m)); } catch { /* storage off */ } renderMemNote(); }
+export function rememberLesson(text) {
+  text = String(text || '').trim().slice(0, 200);
+  if (!text) return;
+  const m = loadMem();
+  if (m.lessons.some((l) => l.toLowerCase() === text.toLowerCase())) return;
+  m.lessons.push(text); while (m.lessons.length > 20) m.lessons.shift();
+  saveMem(m);
+}
+const outlineText = (l) => String(l.data?.text || l.data?.name || l.data?.chain || l.data?.title || l.data?.headline || l.name || '').replace(/\s+/g, ' ').slice(0, 60);
+export function rememberProject(P) {
+  const beats = P.layers.slice().sort((a, b) => (a.in ?? a.keys[0].t) - (b.in ?? b.keys[0].t))
+    .map((l) => `${(l.in ?? l.keys[0].t).toFixed(1)} ${l.type}${outlineText(l) ? ` "${outlineText(l)}"` : ''}`);
+  if (!beats.length) return;
+  const m = loadMem();
+  const entry = { name: P.name, duration: P.duration, format: formatOf(P), wallpaper: P.wallpaper?.kind, beats: beats.slice(0, 24) };
+  m.projects = m.projects.filter((p) => p.name !== entry.name); m.projects.push(entry);
+  while (m.projects.length > 5) m.projects.shift();
+  saveMem(m);
+}
+function memoryBlock() {
+  const m = loadMem();
+  let out = '';
+  if (m.lessons.length) out += `What this user has taught you (follow it):\n${m.lessons.map((l) => `- ${l}`).join('\n')}\n\n`;
+  if (m.projects.length) out += `Videos this user built here before (reuse what fits):\n${m.projects.map((p) => `- "${p.name}" ${p.duration}s ${p.format} ${p.wallpaper || ''}: ${p.beats.join(' | ')}`).join('\n')}\n\n`;
+  return out;
+}
+function renderMemNote() {
+  const el = $('ai-mem'); if (!el) return;
+  const m = loadMem(), n = m.lessons.length + m.projects.length;
+  el.hidden = !n;
+  el.querySelector('span').textContent = `Remembers ${m.lessons.length} preference${m.lessons.length === 1 ? '' : 's'} and ${m.projects.length} past video${m.projects.length === 1 ? '' : 's'}`;
+  el.title = [...m.lessons, ...m.projects.map((p) => `Video: ${p.name}`)].join('\n');
 }
 
 const RULES = () => `You are the editor inside MakeMotion, a "screenlife" video editor: fake desktop windows (chats, code editors, AI agents, browsers, prompt cards, games, webcams...) animate on a 1920x1080 desktop, and a camera films them. You turn the user's description into edits.
@@ -57,22 +104,40 @@ Reply with ONLY one JSON object: {"reply": string, "ops": [ ... ]}
   {"op":"remove_window", "id"}
   {"op":"add_caption", "start", "end", "text"}
   {"op":"remove_caption", "start"}  — removes the caption starting at that second
+  {"op":"add_sound", "t" (s), "sound" (${Object.keys(SFX).join('|')}), "volume"? (0-1)}  — a sound effect on the timeline
+Optionally add "questions": [2-4 short strings] when you need more context before building (then "ops" is []).
+Optionally add "remember": a short sentence with a lasting preference or lesson the user just expressed about how they want videos made (e.g. "Prefers fast pacing, no outline boxes"). Only for real preferences, not one-off edits.
 Rules:
 - All times are absolute seconds on the video timeline, including every time inside "data" (message times, typing starts, clickAt...). Keep everything inside the duration.
 - "data" replaces whole fields; give complete arrays (e.g. all chat messages). Use the field names and shapes from the examples below exactly.
 - Windows live on a 1920x1080 desktop. Keep them on screen, overlapping a little like a real busy desktop; later windows are drawn on top.
 - Pace like a short-form edit: a new beat every 1.5-3 s, chapter/prompt cards for big moments, keep the desktop lived-in (2-5 windows visible).
 - For a new video: set a duration that fits, turn autoCamera on (style "mixed"), use look "cinematic".
+- For any NEW video, if the request is too vague to make it about something specific (no product, topic or story), ask 2-4 questions first (see "questions") instead of guessing.
 - Keep changes minimal when the user asks for a tweak. Never invent real brands or logos.
 
-For a product or startup LAUNCH video (or when the user asks for motion design / a promo), follow how professional launch films are built:
-- Arc: hook line (a number or bold claim) → tension (the pain, often a question) → logo reveal → the product, one feature at a time → proof (numbers in motion) → logo + tagline → CTA line.
-- Use the motion windows: "sentence" for every line of copy (3-7 words, one highlight: *accent word*, [pill], [7>22] counting pill), "logoreveal" for the brand, "spotlight" boxes over the exact control you talk about (with a short label), "metrics" for funnels and growth, "wipe" to bridge two scenes, "endcard" or a final sentence for the CTA.
-- Calm look: set the backdrop with set_project wallpaper "studio-glow" (dark) or "studio-paper" (light) and one accent colour reused on every window ("accent").
-- No hard cuts: each line blurs out (sentence "exitAt" ~0.4 s before the next starts) or a wipe covers the change. A new beat every 1.5-2.5 s; hold the ending 2-3 s. 20-35 s total.
-- Camera: auto camera on with style "smooth" so it glides to each spotlight.
+For a product or startup LAUNCH video, a promo, or "motion design", use this playbook (learned from professional launch films, e.g. the Base44 launch, and from the user's feedback):
+- Pace is everything. Think in beats of ~0.45 s (135 BPM): something new lands every 1-4 beats (0.5-1.8 s). Never hold a static frame longer than ~2.5 s, except the final line (2-3 s). Total 25-45 s. Slow, evenly spaced beats make people scroll away.
+- Arc: hook (3-6 s: 1-3 tiny lines that build word by word, e.g. "Make" → "Make videos" → "that move.") → logo reveal (~3 s) → the product, ONE piece at a time (the prompt being typed, the result, a list, a button) → proof (a "metrics" chain or a number) → promise line ("No editing skills. Just [your idea.]") → logo again → short CTA ("Start creating [for free.]").
+- Copy: "sentence" windows, 2-6 words, ONE highlight per line ([pill], {outline pill}, [7>22] counting pill, *accent word*). Small, calm type (size 56-72). Lines blur out ("exitAt" ~0.35 s before the next one starts); no hard cuts between lines.
+- Show the product isolated and big: give each UI piece its own beat as the only new window (a prompt card, one app window, a phone), so the auto camera frames it full. Show the result right after the action that made it.
+- Do NOT draw "spotlight" outline boxes over parts of a recording, screenshot or video: you can't see where things are inside it, and a box that misses its target looks broken. Only use a spotlight when its box equals a window's exact x/y/w/h, and prefer none.
+- Bridge sections with "wipe" (style "iridescent" or "light") instead of cuts; keep one backdrop: wallpaper "studio-paper" (light, warm) or "studio-glow" (dark), black/white plus at most one accent. Auto camera on, style "smooth" (or "mixed" for faster edits).
+- Sound sells the pace: add_sound "swish" or "pop" when words/cards land, "whoosh" on transitions and wipes, "click" on every cursor click, "riser" ~1.8 s before a big moment and "impact" on it (logo reveal, first product shot), "snap" for quick changes (format, tiles), "ding" on success. Roughly one sound per beat in busy parts.
 
-Window types:
+How to start a launch video (the workflow that made the three launch films below):
+1. Gather context first. You need: (a) the product name and what it does in one sentence, (b) who it is for, (c) the 2-4 features or moments to show, (d) one proof point (a number, a result), (e) the call to action, (f) the look: logo uploaded? colours (or black/white), light or dark, (g) length and format (default 30-40 s, 16:9). References the user likes (a video, a style) help a lot.
+2. If (a) or (c) is missing, or the request is just "make a launch video", do NOT build yet: reply with "ops": [] and put 2-4 short, concrete questions in "questions" (e.g. "What does the product do, in one sentence?", "Which 3 things should the video show?", "Do you have a logo? Upload it in Media and tell me.", "Light or dark, and any brand colours?"). Offer sensible defaults so they can just say "go". When the user answers, build right away; don't ask twice.
+3. Plan before you add windows: write the beat sheet on a 0.45 s grid (hook → logo → features → proof → promise → logo → CTA), decide what lands on each beat, then where the sounds go.
+4. Build it in one go (clear, set_project, windows, sounds). Use uploaded media: a logo image goes in logoreveal "logoId" (and a written-out name image in "wordmarkId"); screen recordings go in "video" windows.
+5. In "reply", say what you built in one sentence and suggest the one change most likely to make it better.
+
+The three launch films built so far, and how each started:
+- Lumen launch (33 s, studio-glow). Started from: three uploaded launch videos to analyse (structure: hook → tension → reveal → product → proof → close) and a made-up product (content analytics). Built: "You just got [7>22] new customers" → "But which post actually {sent them?}" → logoreveal → dashboard with a headline above it every ~2.5 s, a notification sliding in → light wipe → metrics chain → "Stop making content for [views.]" → "Double down on {what actually works.}" → logoreveal → "Start your [free trial] today." Lesson: green accents were rejected; keep black and white.
+- MakeMotion launch v1 (54 s, studio-glow). Started from: the product itself, the uploaded logo mark and wordmark, and recordings of the real editor. Built: three hook lines → logo (mark shrinks into the wordmark) → each feature as a recorded clip with a headline and a spotlight box → metrics → promise → logo → CTA. Lessons from the user: too slow (a beat every ~2.5-6 s, people scroll away) and the spotlight outlines missed the parts of the recordings they targeted. Never repeat either.
+- MakeMotion launch v2 (41 s, studio-paper, 135 BPM). Started from: the user's favourite reference (a fast app-builder launch video), analysed for pacing (a hit every 0.22 s in the music, a new visual every 0.5-1.8 s), sound (music plus effects on nearly every hit, no narrator) and how it shows UI (one isolated piece per beat, big, no boxes). Built: 0.1 "Make videos" builds word by word → 1.3 "that move." → 2.5 collage of small app windows popping in from the edges (riser) → 3.9 logoreveal (impact) → 5.9 prompt card typed, Build clicked (typing, click, whoosh) → 7.9 the result, cut every ~0.7 s between its beats → 10.0 a list of scenes appearing one per 0.25 s → 11.6 timeline → 13.4 "Change {any word}" → 14.7 live editing (typing) → 17.0 the same frame in 16:9, 9:16, 4:5, 1:1 (snap each) → 20.0 phone mockup → 21.8 click Export → 23.1 dark terminal "export video.mp4" with progress → 25.3 montage of outputs, one per 0.22-0.44 s → 27.6 four number tiles pop on the beat → 29.8 "No editing skills. Just [your idea.]" → 31.6 big Export button clicked → 35.1 logo (riser, impact) → 38.0 "Make it [move]" held to the end. This is the one the user liked: start new launch videos from this rhythm.
+
+${memoryBlock()}Window types:
 ${catalog()}
 
 The project now:
@@ -103,7 +168,11 @@ export function applyOps(ops) {
       if (op.autoCamera != null) P.camera.auto = !!op.autoCamera;
       if (['mixed', 'whip', 'cut', 'smooth'].includes(op.cameraStyle)) P.camera.autoStyle = op.cameraStyle;
     } else if (op.op === 'clear') {
-      P.layers = []; P.captions = []; did.del++;
+      P.layers = []; P.captions = []; P.audio = (P.audio || []).filter((a) => a.track !== 'sfx'); did.del++;
+    } else if (op.op === 'add_sound' && SFX[op.sound]) {
+      P.audio ??= [];
+      P.audio.push({ id: newId('au'), src: `sfx:${op.sound}`, track: 'sfx', start: +clamp(num(op.t, 0), 0, P.duration).toFixed(2), offset: 0, volume: clamp(num(op.volume, 0.7), 0, 1), name: SFX[op.sound] });
+      did.snd = (did.snd || 0) + 1;
     } else if (op.op === 'add_window' && APPS[op.type]) {
       const start = snapTime(clamp(num(op.start, 0), 0, P.duration));
       const l = makeLayer(op.type, start, P);
@@ -150,7 +219,7 @@ export function applyOps(ops) {
   return did;
 }
 
-const summarize = (d) => [d.add && `${d.add} window${d.add > 1 ? 's' : ''} added`, d.upd && `${d.upd} changed`, d.del && `${d.del} removed`, d.cap && `captions updated`].filter(Boolean).join(' · ');
+const summarize = (d) => [d.add && `${d.add} window${d.add > 1 ? 's' : ''} added`, d.upd && `${d.upd} changed`, d.del && `${d.del} removed`, d.cap && `captions updated`, d.snd && `${d.snd} sound${d.snd > 1 ? 's' : ''}`].filter(Boolean).join(' · ');
 
 // ---------- Panel ----------
 
@@ -167,7 +236,7 @@ const ERR = {
 function renderLog() {
   const box = $('ai-log');
   if (!box) return;
-  box.innerHTML = log.length ? log.map((m) => `<div class="ai-msg ${m.who}">${esc(m.text)}${m.ops ? `<span class="ai-ops">${esc(m.ops)}</span>` : ''}</div>`).join('')
+  box.innerHTML = log.length ? log.map((m) => `<div class="ai-msg ${m.who}">${esc(m.text)}${m.questions?.length ? `<ol class="ai-qs">${m.questions.map((q) => `<li>${esc(q)}</li>`).join('')}</ol>` : ''}${m.ops ? `<span class="ai-ops">${esc(m.ops)}</span>` : ''}</div>`).join('')
     : `<div class="ai-empty"><b>Describe your video.</b> Claude builds the windows, timing and captions, and you can change anything after.<br><br>Try: “20s devlog about building a fishing game with an AI agent. Start with a chapter card, show the code, a group chat roasting me, end on a ‘3 hours later’ card.”</div>`;
   if (busy) box.insertAdjacentHTML('beforeend', '<div class="ai-msg ai thinking">Building…</div>');
   box.scrollTop = box.scrollHeight;
@@ -194,10 +263,13 @@ export async function sendPrompt(text) {
     const input = [{ role: 'user', content: RULES() }, ...turns];
     const plan = await sample.json(input, { signal: ctl.signal, cache: false });
     const did = applyOps(plan?.ops);
+    if (plan?.remember) rememberLesson(plan.remember);
+    if (did.add >= 3) rememberProject(S.project);
     const reply = String(plan?.reply || 'Done.');
     turns.push({ role: 'assistant', content: JSON.stringify({ reply, ops: '(applied)' }) });
-    log.push({ who: 'ai', text: reply, ops: summarize(did) || 'No changes' });
-    if (did.add || did.upd || did.del || did.cap || plan?.ops?.length) {
+    const qs = Array.isArray(plan?.questions) ? plan.questions.map((q) => String(q).slice(0, 200)).filter(Boolean).slice(0, 5) : [];
+    log.push({ who: 'ai', text: reply, questions: qs, ops: qs.length && !plan?.ops?.length ? '' : summarize(did) || 'No changes' });
+    if (did.add || did.upd || did.del || did.cap || did.snd || plan?.ops?.length) {
       S.sel = null;
       changed({ structure: true, inspector: true });
       hooks.project();
@@ -225,13 +297,19 @@ export function initAI() {
     document.querySelectorAll('[data-ltab]').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
     $('ai-pane').hidden = tab !== 'prompt';
     $('win-pane').hidden = tab !== 'windows';
-    $('ai-pane').closest('.layers').classList.toggle('prompt-tab', tab === 'prompt');
+    $('scene-pane').hidden = tab !== 'scenes';
+    const panel = $('ai-pane').closest('.layers');
+    panel.classList.toggle('prompt-tab', tab === 'prompt');
+    panel.classList.toggle('scenes-tab', tab === 'scenes');
+    if (tab === 'scenes') hooks.timeline();
     try { localStorage.setItem('finischd.ltab', tab); } catch { /* ignore */ }
   }));
   let tab = 'prompt';
   try { tab = localStorage.getItem('finischd.ltab') || 'prompt'; } catch { /* ignore */ }
   document.querySelector(`[data-ltab="${tab}"]`)?.click();
   renderLog();
+  renderMemNote();
+  $('ai-mem-clear')?.addEventListener('click', () => { saveMem({ lessons: [], projects: [] }); toast('Prompt memory cleared'); });
   const claude = window.claude;
   if (claude?.use) {
     claude.use('sample').then((s) => {
