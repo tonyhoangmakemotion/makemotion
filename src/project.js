@@ -9,6 +9,14 @@ export const CURSOR_EVENTS = {
   click: 'Click', double: 'Double-click', right: 'Right-click', drag: 'Drag / swipe', scroll: 'Scroll',
 };
 
+// A short layer name taken from the words of a text window ('Now 20% off.'), or '' for other types.
+const TEXT_TYPES = ['sentence', 'metrics', 'title', 'logoreveal'];
+export function textLayerName(type, d) {
+  if (!TEXT_TYPES.includes(type) || !d) return '';
+  const t = String(d.text || d.chain || d.name || '').replace(/\[([^\]>]*?)[\d.,]+\s*>\s*([\d.,]+)([^\]]*)\]/g, '$1$2$3').replace(/[*[\]{}~]/g, '').replace(/\s+/g, ' ').trim();
+  return t.slice(0, 32);
+}
+
 export function makeLayer(type, t, project) {
   const A = APPS[type];
   const W = project.width, H = project.height;

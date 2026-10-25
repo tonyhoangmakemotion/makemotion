@@ -4,7 +4,7 @@
 // capability; where that is unavailable (opened outside claude.ai) the panel says so.
 
 import { applyEnter, applyExit, clamp, newId, snapTime } from './model.js';
-import { makeLayer, shiftLayer } from './project.js';
+import { makeLayer, shiftLayer, textLayerName } from './project.js';
 import { APP_LIST, APPS } from './apps/index.js';
 import { LOOKS } from './look.js';
 import { FORMATS, formatOf } from './format.js';
@@ -88,11 +88,17 @@ function renderMemNote() {
   const el = $('ai-mem'); if (!el) return;
   const m = loadMem(), n = m.lessons.length + m.projects.length;
   el.hidden = !n;
-  el.querySelector('span').textContent = `Remembers ${m.lessons.length} preference${m.lessons.length === 1 ? '' : 's'} and ${m.projects.length} past video${m.projects.length === 1 ? '' : 's'}`;
+  const parts = [m.lessons.length && `${m.lessons.length} preference${m.lessons.length === 1 ? '' : 's'}`, m.projects.length && `${m.projects.length} past video${m.projects.length === 1 ? '' : 's'}`].filter(Boolean);
+  el.querySelector('span').textContent = `Remembers ${parts.join(' and ')}`;
   el.title = [...m.lessons, ...m.projects.map((p) => `Video: ${p.name}`)].join('\n');
 }
 
 const RULES = () => `You are the editor inside MakeMotion, a "screenlife" video editor: fake desktop windows (chats, code editors, AI agents, browsers, prompt cards, games, webcams...) animate on a 1920x1080 desktop, and a camera films them. You turn the user's description into edits.
+
+About MakeMotion (from makemotion.studio; tagline "Motion videos, made from a prompt."): a prompt-driven motion editor for people who ship ten videos a week: UGC editors (creator clips into finished ads with beat-synced captions and hooks), brands (on-brand videos across many creators, quick price/offer swaps) and agencies (A/B hook variations without more editors). Principles: real layers, not flat files (every word and keyframe stays editable); your brand every time; the user stays in control (you draft, they decide). Users brief you like they'd brief an editor: length, format, footage, mood. Follow-up prompts revise the existing cut instead of starting over.
+- Default to short-form social unless told otherwise: format "9:16", 10-20 s, text clear of platform UI (keep text inside the middle 70% vertically), a hook in the first second. With the camera centred at zoom 1, a format shows only part of the 1920×1080 desktop: 9:16 shows x 656-1264, 4:5 x 528-1392, 1:1 x 420-1500. Keep every text and window at least 40 px inside that strip (for 9:16: x 700-1220), or it gets cut off at the frame edge.
+- Keep copy as live text in sentence/title windows, never baked into images, so any word can be changed later without breaking timing.
+- For ads: a hook line, the offer or product, one proof, a clear CTA. When asked for variations or A/B hooks, change only the hook beat and keep the rest identical.
 
 Reply with ONLY one JSON object: {"reply": string, "ops": [ ... ]}
 - "reply": 1-2 short sentences to the user about what you built or changed (no JSON, no lists).
@@ -116,6 +122,12 @@ Rules:
 - For any NEW video, if the request is too vague to make it about something specific (no product, topic or story), ask 2-4 questions first (see "questions") instead of guessing.
 - Keep changes minimal when the user asks for a tweak. Never invent real brands or logos.
 
+For a SCREENLIFE story (devlog, "I built…", vlog, story told through a desktop), match the user's reference video (a 7:48 dev vlog, analysed in docs/screenlife-reference.md):
+- Look: wallpaper "painting" or "classical", look "cinematic" (depth of field, contrast, vignette, grain), dark-theme windows. Auto camera on, style "mixed": the camera should almost never stop (push in on what is typed, pull back to the cluster, pan to the next window).
+- Dense desktop: 4-8 windows overlapping in a cluster, big in frame; a new window or event every 1.5-4 s; each gets the shot when it appears.
+- Real-looking content: an "agent" terminal with a typed prompt, "Thinking…" and a red warning; "code" with "errors" (red lines, e.g. "4, 7") lighting up when something breaks; "chat" messages from friends pushing the story; browser/social/game/map windows for context.
+- "facecam" pops in big for reactions, then sits in a corner. Chapters: a "prompt" card ("run Chapter One?") between acts. Inserts: "photo"/"video" windows for jokes, "notes" as a sticky note with one word, captions as pills.
+
 For a product or startup LAUNCH video, a promo, or "motion design", use this playbook (learned from professional launch films, e.g. the Base44 launch, and from the user's feedback):
 - Pace is everything. Think in beats of ~0.45 s (135 BPM): something new lands every 1-4 beats (0.5-1.8 s). Never hold a static frame longer than ~2.5 s, except the final line (2-3 s). Total 25-45 s. Slow, evenly spaced beats make people scroll away.
 - Arc: hook (3-6 s: 1-3 tiny lines that build word by word, e.g. "Make" → "Make videos" → "that move.") → logo reveal (~3 s) → the product, ONE piece at a time (the prompt being typed, the result, a list, a button) → proof (a "metrics" chain or a number) → promise line ("No editing skills. Just [your idea.]") → logo again → short CTA ("Start creating [for free.]").
@@ -125,6 +137,15 @@ For a product or startup LAUNCH video, a promo, or "motion design", use this pla
 - Bridge sections with "wipe" (style "iridescent" or "light") instead of cuts; keep one backdrop: wallpaper "studio-paper" (light, warm) or "studio-glow" (dark), black/white plus at most one accent. Auto camera on, style "smooth" (or "mixed" for faster edits).
 - Sound sells the pace: add_sound "swish" or "pop" when words/cards land, "whoosh" on transitions and wipes, "click" on every cursor click, "riser" ~1.8 s before a big moment and "impact" on it (logo reveal, first product shot), "snap" for quick changes (format, tiles), "ding" on success. Roughly one sound per beat in busy parts.
 
+Reference library: 16 professional launch videos the user collected as the quality bar (analysed frame by frame; details in docs/launch-video-library.md). What they share, so copy it:
+- One idea per frame: a 2-6 word line plus ONE supporting visual. Clean backdrop: pure white/off-white most often ("studio-paper" or "solid" #ffffff), else near-black ("flow-dark"/"solid" #0b0b0d) or one vivid brand gradient. Black/white type plus one accent colour.
+- Mostly one continuous take: change happens inside the frame (things enter/leave, the camera pushes in or pulls back, light/dark flips between acts), not with hard cuts. Each move is a short eased burst (0.3-0.6 s) on a beat, then the frame HOLDS long enough to read (1-3 s). Fast cuts only for the hook, a montage or a stat run.
+- Text: sentence case, one sans, small for lines (size 56-80), huge only for hero words, numbers and the name. Mix the Kinetic line "effect"s instead of using one everywhere: "type" for prompts and the opening line (letters at cps 22-30, caret), "blur" for statements, "stickers" for a 2-4 word punch line (e.g. "now you can"), "scramble" for tech/privacy moments, and the rolling word "(a|b|c)" to list options in place ("Get ad (ideas|hooks|feedback)", "Works in (chat|email|docs)"; rollEvery 0.5-0.8). Counters "[0>157%]" on every number.
+- UI isolated and big: one card/window at a time, centred or right of a left-aligned headline, numbers counting, the cursor gliding in to click (button squash). Push the camera into the important detail (the text being typed, the button), then pull back to show the whole thing.
+- Story shapes that work: (A) problem lines -> reveal the name -> 3-4 features -> proof (numbers, benchmark) -> CTA; (B) prompt demo: a prompt typed in a field -> click -> the result streams in -> 2-4 feature beats -> logo; (C) feature list: headline on the left, its card on the right, ~3 s each, same layout every time; (D) stat reel: one big counted number per beat; (E) word-per-beat opener over different photos/textures.
+- Endings: logo pops then the name slides out ("logoreveal"), or a black CTA pill clicked, or the URL alone, with a final rolling line ("Anything you can do in a (browser|chat|doc)").
+- Default for any new launch, promo or B-roll video: the house style above + the MakeMotion launch v4 rhythm below (music-locked, a beat every 0.5-1.8 s during demos, holds on statements), unless the user asks for another style.
+
 How to start a launch video (the workflow that made the three launch films below):
 1. Gather context first. You need: (a) the product name and what it does in one sentence, (b) who it is for, (c) the 2-4 features or moments to show, (d) one proof point (a number, a result), (e) the call to action, (f) the look: logo uploaded? colours (or black/white), light or dark, (g) length and format (default 30-40 s, 16:9). References the user likes (a video, a style) help a lot.
 2. If (a) or (c) is missing, or the request is just "make a launch video", do NOT build yet: reply with "ops": [] and put 2-4 short, concrete questions in "questions" (e.g. "What does the product do, in one sentence?", "Which 3 things should the video show?", "Do you have a logo? Upload it in Media and tell me.", "Light or dark, and any brand colours?"). Offer sensible defaults so they can just say "go". When the user answers, build right away; don't ask twice.
@@ -132,10 +153,11 @@ How to start a launch video (the workflow that made the three launch films below
 4. Build it in one go (clear, set_project, windows, sounds). Use uploaded media: a logo image goes in logoreveal "logoId" (and a written-out name image in "wordmarkId"); screen recordings go in "video" windows.
 5. In "reply", say what you built in one sentence and suggest the one change most likely to make it better.
 
-The three launch films built so far, and how each started:
+The launch films built so far, and how each started:
 - Lumen launch (33 s, studio-glow). Started from: three uploaded launch videos to analyse (structure: hook → tension → reveal → product → proof → close) and a made-up product (content analytics). Built: "You just got [7>22] new customers" → "But which post actually {sent them?}" → logoreveal → dashboard with a headline above it every ~2.5 s, a notification sliding in → light wipe → metrics chain → "Stop making content for [views.]" → "Double down on {what actually works.}" → logoreveal → "Start your [free trial] today." Lesson: green accents were rejected; keep black and white.
 - MakeMotion launch v1 (54 s, studio-glow). Started from: the product itself, the uploaded logo mark and wordmark, and recordings of the real editor. Built: three hook lines → logo (mark shrinks into the wordmark) → each feature as a recorded clip with a headline and a spotlight box → metrics → promise → logo → CTA. Lessons from the user: too slow (a beat every ~2.5-6 s, people scroll away) and the spotlight outlines missed the parts of the recordings they targeted. Never repeat either.
 - MakeMotion launch v2 (41 s, studio-paper, 135 BPM). Started from: the user's favourite reference (a fast app-builder launch video), analysed for pacing (a hit every 0.22 s in the music, a new visual every 0.5-1.8 s), sound (music plus effects on nearly every hit, no narrator) and how it shows UI (one isolated piece per beat, big, no boxes). Built: 0.1 "Make videos" builds word by word → 1.3 "that move." → 2.5 collage of small app windows popping in from the edges (riser) → 3.9 logoreveal (impact) → 5.9 prompt card typed, Build clicked (typing, click, whoosh) → 7.9 the result, cut every ~0.7 s between its beats → 10.0 a list of scenes appearing one per 0.25 s → 11.6 timeline → 13.4 "Change {any word}" → 14.7 live editing (typing) → 17.0 the same frame in 16:9, 9:16, 4:5, 1:1 (snap each) → 20.0 phone mockup → 21.8 click Export → 23.1 dark terminal "export video.mp4" with progress → 25.3 montage of outputs, one per 0.22-0.44 s → 27.6 four number tiles pop on the beat → 29.8 "No editing skills. Just [your idea.]" → 31.6 big Export button clicked → 35.1 logo (riser, impact) → 38.0 "Make it [move]" held to the end. This is the one the user liked: start new launch videos from this rhythm.
+- MakeMotion launch v4 (39 s, light paper, 125 BPM, the first official one). Started from: v3 plus the user's feedback "too slow; hook me in the first second; show that you can also build it yourself without the prompt". Built: frame 1 is the song's drop with four finished videos cut every half beat → 1.0 "All of this took [one prompt.]" → 1.9 prompt typed fast, Build → 3.8 logo (flash, shake) → 5.8 real editor recordings with snap zooms on the beat and captions on dark pills → 8.4 a price edit → 11.3 the manual path (+ Window → Phone chat → type → drag writes a keyframe → play) captioned "Or skip the AI. Pick a window. Type your text. Move it. Made for beginners." → 15.3 a new format every beat → 18.2 comments and versions → 20.1 export → 22.0 montage → 24.0 layers → 26.8 promise in the music break → 30.7 logo and tagline as the music returns → waitlist → "made with makemotion". Lessons: start on the drop, never let a shot sit longer than about 2.5 s, keep text inside the 9:16 safe strip.
 
 ${memoryBlock()}Window types:
 ${catalog()}
@@ -169,6 +191,8 @@ export function applyOps(ops) {
       if (['mixed', 'whip', 'cut', 'smooth'].includes(op.cameraStyle)) P.camera.autoStyle = op.cameraStyle;
     } else if (op.op === 'clear') {
       P.layers = []; P.captions = []; P.audio = (P.audio || []).filter((a) => a.track !== 'sfx'); did.del++;
+      // A new video starts with a calm, centred camera (old camera moves belong to the old video).
+      P.camera.keys = [{ t: 0, ease: 'smooth', cx: P.width / 2, cy: P.height / 2, zoom: 1 }]; P.camera.shakes = []; P.camera.blurs = [];
     } else if (op.op === 'add_sound' && SFX[op.sound]) {
       P.audio ??= [];
       P.audio.push({ id: newId('au'), src: `sfx:${op.sound}`, track: 'sfx', start: +clamp(num(op.t, 0), 0, P.duration).toFixed(2), offset: 0, volume: clamp(num(op.volume, 0.7), 0, 1), name: SFX[op.sound] });
@@ -178,6 +202,7 @@ export function applyOps(ops) {
       const l = makeLayer(op.type, start, P);
       if (op.data && typeof op.data === 'object') Object.assign(l.data, op.data);
       if (op.name) l.name = String(op.name).slice(0, 60);
+      else { const t = textLayerName(op.type, l.data); if (t) l.name = t; }
       if (op.title) l.title = String(op.title).slice(0, 120);
       applyBox(l, op);
       const base = { ...l.keys[0], opacity: 1, scale: 1 };
@@ -301,7 +326,7 @@ export function initAI() {
     const panel = $('ai-pane').closest('.layers');
     panel.classList.toggle('prompt-tab', tab === 'prompt');
     panel.classList.toggle('scenes-tab', tab === 'scenes');
-    if (tab === 'scenes') hooks.timeline();
+    if (tab !== 'windows') hooks.timeline();
     try { localStorage.setItem('finischd.ltab', tab); } catch { /* ignore */ }
   }));
   let tab = 'prompt';

@@ -5,7 +5,7 @@ import {
   sample, upsertKey, keyAt, removeKey, clamp, snapTime, newId, EASINGS, EASE_LABELS, LAYER_PROPS, CAMERA_PROPS, CURSOR_PROPS,
   applyEnter, applyExit,
 } from './model.js';
-import { CURSOR_EVENTS } from './project.js';
+import { CURSOR_EVENTS, textLayerName } from './project.js';
 import { layerRange } from './cut.js';
 import { APPS, chromeOf } from './apps/index.js';
 import { layerState, windowTitle, cursorAt } from './render.js';
@@ -51,7 +51,8 @@ function easeCurve(name) {
   const E = EASINGS[name] || EASINGS.smooth;
   const pts = [];
   for (let i = 0; i <= 40; i++) { const u = i / 40; const v = name === 'hold' ? (u < 1 ? 0 : 1) : E(u); pts.push(`${(12 + u * 276).toFixed(1)},${(118 - v * 96).toFixed(1)}`); }
-  return `<div class="ease-curve" aria-hidden="true"><svg viewBox="0 0 300 130" preserveAspectRatio="none"><polyline points="${pts.join(' ')}" fill="none" stroke="#f2f2f4" stroke-width="2.2" vector-effect="non-scaling-stroke"/><circle cx="12" cy="118" r="4.5" fill="var(--accent)"/><circle cx="288" cy="22" r="4.5" fill="var(--accent)"/></svg></div><span class="ease-name">${EASE_LABELS[name] || name}</span>`;
+  // Drawn like the site's mockup: white curve, violet bezier-style handles.
+  return `<div class="ease-curve" aria-hidden="true"><svg viewBox="0 0 300 130" preserveAspectRatio="none"><polyline points="${pts.join(' ')}" fill="none" stroke="#f2f2f4" stroke-width="2" vector-effect="non-scaling-stroke"/><path d="M12 118 L80 118 M288 22 L110 24" stroke="#8b6cff" stroke-width="1.2" vector-effect="non-scaling-stroke"/><circle cx="80" cy="118" r="4" fill="#8b6cff"/><circle cx="110" cy="24" r="4" fill="#8b6cff"/></svg></div><span class="ease-name">${EASE_LABELS[name] || name}</span>`;
 }
 
 function keyframeControls(target) {
@@ -86,7 +87,7 @@ function fieldHtml(f, d, fi = 0) {
     case 'list': return field(id, f.label, (v || []).join(', '));
     case 'number': return `<div class="field"><label for="${id}">${f.label}</label><input type="number" id="${id}" step="${f.step ?? 1}" ${f.min != null ? `min="${f.min}"` : ''} ${f.max != null ? `max="${f.max}"` : ''} value="${v ?? 0}"></div>`;
     case 'time': return `<div class="field"><label for="${id}">${f.label} (s)</label><div class="inline"><input type="number" id="${id}" step="0.1" min="0" value="${+(v ?? 0).toFixed(2)}"><button class="btn small" data-now="${f.key}" title="Set to the playhead">Now</button></div></div>`;
-    case 'textarea': return `<div class="field"><label for="${id}">${f.label}</label><textarea id="${id}" rows="${f.rows || 4}" ${f.mono ? 'class="mono" spellcheck="false"' : ''}>${esc(v ?? '')}</textarea></div>`;
+    case 'textarea': return `<div class="field"><label for="${id}">${f.label}</label>${f.count ? '<div class="counted">' : ''}<textarea id="${id}" rows="${f.rows || 4}" ${f.mono ? 'class="mono" spellcheck="false"' : ''}>${esc(v ?? '')}</textarea>${f.count ? `<span class="count" id="${id}-n">${String(v ?? '').length} / ${f.count}</span></div>` : ''}</div>`;
     case 'script': return `<div class="field"><label for="${id}">${f.label}</label><textarea id="${id}" rows="${f.rows || 5}" class="mono" spellcheck="false">${esc(f.format(v || []))}</textarea></div>`;
     case 'select': return `<div class="field"><label for="${id}">${f.label}</label><select id="${id}">${f.options.map(([val, l]) => `<option value="${val}" ${v === val ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`;
     case 'check': return `<label class="check"><input type="checkbox" id="${id}" ${v ? 'checked' : ''}> ${f.label}</label>`;
@@ -117,11 +118,16 @@ function bindContent(l) {
   const A = APPS[l.type];
   const d = l.data;
   const typing = { coalesce: true };
+  // A text layer still named after its words follows them when they change (the stage tag reads 'Text · <name>').
+  const syncName = (before) => {
+    const auto = textLayerName(l.type, before), now = textLayerName(l.type, d);
+    if (auto && l.name === auto && now && now !== auto) { l.name = now; hooks.layers?.(); const n = $('layer-name'); if (n) n.value = now; }
+  };
   A.fields.forEach((f, fi) => {
     if (f.when && !f.when(d)) return;
     const id = `fd-${f.key}`;
     switch (f.type) {
-      case 'text': on(id, 'input', (e) => { d[f.key] = e.target.value; changed(typing); }); break;
+      case 'text': on(id, 'input', (e) => { const before = { ...d }; d[f.key] = e.target.value; syncName(before); changed(typing); }); break;
       case 'contact': on(id, 'input', (e) => {
         const val = e.target.value.trim(); if (!val) return;
         const i = (d.contacts || []).indexOf(d.contact);
@@ -131,7 +137,7 @@ function bindContent(l) {
       case 'list': on(id, 'change', (e) => { d[f.key] = e.target.value.split(',').map((s) => s.trim()).filter(Boolean); changed(); }); break;
       case 'number': on(id, 'change', (e) => { const n = parseFloat(e.target.value); if (!Number.isNaN(n)) { d[f.key] = clamp(n, f.min ?? -Infinity, f.max ?? Infinity); changed(); } }); break;
       case 'time': on(id, 'change', (e) => { d[f.key] = Math.max(0, +e.target.value || 0); changed(); }); break;
-      case 'textarea': on(id, 'input', (e) => { d[f.key] = e.target.value; changed(typing); }); break;
+      case 'textarea': on(id, 'input', (e) => { const before = { ...d }; d[f.key] = e.target.value; syncName(before); if (f.count && $(`${id}-n`)) $(`${id}-n`).textContent = `${e.target.value.length} / ${f.count}`; changed(typing); }); break;
       case 'script': on(id, 'input', (e) => { d[f.key] = f.parse(e.target.value); changed(typing); }); break;
       case 'select': on(id, 'change', (e) => { d[f.key] = e.target.value; changed({ inspector: true }); }); break;
       case 'check': on(id, 'change', (e) => { d[f.key] = e.target.checked; changed({ inspector: true }); }); break;
@@ -649,7 +655,7 @@ export function renderInspector() {
   const l = selectedLayer();
   let title = 'Inspector', html = '', subtitle = '';
   if (l) {
-    title = APPS[l.type]?.label || 'Window';
+    title = ['sentence', 'title'].includes(l.type) ? 'Text layer' : APPS[l.type]?.label || 'Window';
     subtitle = l.name && l.name !== title ? l.name : (APPS[l.type]?.chip || '').toUpperCase();
     html = field('layer-name', 'Layer name (only you see this)', l.name)
       + windowBlock(l) + contentBlock(l) + animateBlock(l)

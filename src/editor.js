@@ -103,29 +103,32 @@ function draw() {
   if (layer && layerVisible(layer, S.t) && !layer.hidden) {
     const s = layerState(layer, S.t);
     const r = scaledRect(s);
-    const ACC = '#7c5cff';
-    ctx.strokeStyle = ACC; ctx.lineWidth = 3 * px;
-    ctx.strokeRect(r.x - 3 * px, r.y - 3 * px, r.w + 6 * px, r.h + 6 * px);
-    // Corner handles: white squares with an accent edge (the bottom-right one resizes).
-    const hs = 16 * px;
+    const ACC = '#8b6cff', TAG = '#7154f2';
+    // Sizes in screen pixels, like the mockup (1.5 px outline, 8 px handles, 12 px tag text).
+    const k = px * (canvas.width / Math.max(1, canvas.getBoundingClientRect().width));
+    ctx.strokeStyle = ACC; ctx.lineWidth = 1.5 * k;
+    ctx.strokeRect(r.x, r.y, r.w, r.h);
+    // Corner handles: small white squares with a violet edge (the bottom-right one resizes).
+    const hs = 8 * k;
     for (const [hx, hy] of [[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]]) {
       ctx.fillStyle = '#ffffff'; ctx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs);
-      ctx.strokeStyle = ACC; ctx.lineWidth = 2.5 * px; ctx.strokeRect(hx - hs / 2, hy - hs / 2, hs, hs);
+      ctx.strokeStyle = ACC; ctx.lineWidth = 1.5 * k; ctx.strokeRect(hx - hs / 2, hy - hs / 2, hs, hs);
     }
-    // Name tag under the selection: "Type · name".
+    // Name tag under the selection: "Type · name", mono on violet.
     const kind = APPS[layer.type]?.label || layer.type;
-    const tag = layer.name && layer.name !== kind ? `${kind} · ${layer.name}` : kind;
-    ctx.font = `500 ${22 * px}px 'Geist Mono', monospace`;
-    const tw = ctx.measureText(tag).width, th = 36 * px, ty = r.y + r.h + 14 * px;
-    ctx.fillStyle = ACC;
-    ctx.beginPath(); ctx.roundRect(r.x, ty, tw + 24 * px, th, 7 * px); ctx.fill();
+    const short = ['sentence', 'title'].includes(layer.type) ? 'Text' : kind;
+    const tag = layer.name && layer.name !== kind ? `${short} · ${layer.name}` : short;
+    ctx.font = `500 ${12 * k}px 'Geist Mono', ui-monospace, monospace`;
+    const tw = ctx.measureText(tag).width, th = 20 * k, ty = r.y + r.h + 6 * k;
+    ctx.fillStyle = TAG;
+    ctx.beginPath(); ctx.roundRect(r.x - 0.75 * k, ty, tw + 14 * k, th, 4 * k); ctx.fill();
     ctx.fillStyle = '#ffffff'; ctx.textBaseline = 'middle';
-    ctx.fillText(tag, r.x + 12 * px, ty + th / 2 + 1 * px);
+    ctx.fillText(tag, r.x + 6.25 * k, ty + th / 2 + 0.5 * k);
     ctx.textBaseline = 'alphabetic';
     // Hovered editable region
     if (hoverRegion && hoverRegion.layer === layer) {
       const rr = throughScale(hoverRegion.rect, s);
-      ctx.strokeStyle = 'rgba(196,178,255,0.95)'; ctx.lineWidth = 2 * px;
+      ctx.strokeStyle = 'rgba(139,108,255,0.8)'; ctx.lineWidth = 1.5 * px;
       ctx.strokeRect(rr.x, rr.y, rr.w, rr.h);
     }
   }

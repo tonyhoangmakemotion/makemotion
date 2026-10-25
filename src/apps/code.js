@@ -64,11 +64,20 @@ function draw(ctx, area, data, t) {
   ctx.beginPath(); ctx.rect(x, y + 40, w, h - 66); ctx.clip();
   ctx.font = `400 ${FS}px ${MONO_FONT}`;
   const first = Math.floor(scroll);
+  // Error lines (like a failing build): a red band, a red bar on the left and a dot in the gutter.
+  const errs = new Set(String(data.errors || '').split(/[\s,]+/).map(Number).filter((n) => n > 0));
+  const errK = errs.size ? Math.min(1, Math.max(0, (t - (data.errorAt ?? data.start)) / 0.25)) : 0;
   for (let n = first; n < Math.min(lines.length, first + maxLines + 1); n++) {
     const ly = y + TOP + (n - scroll) * LH + FS;
     const isCurrent = n === lines.length - 1;
     if (isCurrent) { ctx.fillStyle = 'rgba(255,255,255,0.045)'; ctx.fillRect(x, ly - FS - 4, w, LH); }
-    ctx.fillStyle = isCurrent ? '#a9abb6' : '#4a4d5c';
+    const isErr = errK > 0 && errs.has(n + 1);
+    if (isErr) {
+      ctx.fillStyle = `rgba(255,72,72,${(0.17 * errK).toFixed(3)})`; ctx.fillRect(x, ly - FS - 4, w, LH);
+      ctx.fillStyle = `rgba(255,84,84,${errK.toFixed(3)})`; ctx.fillRect(x, ly - FS - 4, 3, LH);
+      ctx.beginPath(); ctx.arc(x + 12, ly - FS / 2 + 2, 4 * errK, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = isErr ? '#ff8a8a' : isCurrent ? '#a9abb6' : '#4a4d5c';
     ctx.textAlign = 'right';
     ctx.fillText(String(n + 1), x + GUTTER - 14, ly);
     ctx.textAlign = 'left';
@@ -100,14 +109,16 @@ export const app = {
   type: 'code', label: 'Code editor', group: 'Work', chip: 'code', size: [820, 560], chrome: 'window',
   blurb: 'Types code with syntax colors',
   title: (d) => d.file,
-  defaults: (t0) => ({ file: 'main.js', start: +(t0 + 0.6).toFixed(2), cps: 30, code: "function hello() {\n  return 'world';\n}" }),
-  times: ['start'],
+  defaults: (t0) => ({ file: 'main.js', start: +(t0 + 0.6).toFixed(2), cps: 30, code: "function hello() {\n  return 'world';\n}", errors: '', errorAt: null }),
+  times: ['start', 'errorAt'],
   regions: (area) => [{ key: 'file', label: 'File name', rect: { x: area.x + 12, y: area.y + 6, w: 170, h: 30 } }],
   fields: [
     { key: 'file', type: 'text', label: 'File name' },
     { key: 'start', type: 'time', label: 'Starts typing at' },
     { key: 'cps', type: 'number', label: 'Speed (characters/s)', min: 1, max: 400 },
     { key: 'code', type: 'textarea', label: 'Code', rows: 9, mono: true },
+    { key: 'errors', type: 'text', label: 'Error lines (red), e.g. 4, 7' },
+    { key: 'errorAt', type: 'time', label: 'Errors light up at' },
   ],
   draw,
 };

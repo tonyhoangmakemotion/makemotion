@@ -12,10 +12,15 @@ const lerp = (a, b, k) => a + (b - a) * k;
 
 // ---------- Sentence ----------
 // Markup:  *word*  accent colour · [text] filled pill · {text} outlined pill · [7>22] counting pill
-//          ~ a coloured dot (like a logo mark)
+//          (one|two|three) a word that rolls through options · ~ a coloured dot (like a logo mark)
+// Effects (d.effect), from the launch videos in docs/launch-video-analysis.md:
+//   blur      words blur in and rise one by one (default)
+//   type      typewriter: letters appear at d.cps per second with a caret
+//   stickers  each word slams in on its own coloured block, staggered up and down
+//   scramble  each word decodes from random letters
 export function tokenize(src) {
   const toks = [];
-  const re = /\*([^*]+)\*|\[([^\]]+)\]|\{([^}]+)\}|(~)|(\S+)/g;
+  const re = /\*([^*]+)\*|\[([^\]]+)\]|\{([^}]+)\}|\(([^()|]+(?:\|[^()|]+)+)\)|(~)|(\S+)/g;
   let m;
   while ((m = re.exec(String(src || '')))) {
     if (m[1]) toks.push({ kind: 'accent', text: m[1] });
@@ -24,29 +29,47 @@ export function tokenize(src) {
       if (c) toks.push({ kind: 'count', pre: c[1], from: parseFloat(c[2].replace(/,/g, '')), to: parseFloat(c[3].replace(/,/g, '')), post: c[4], dec: (c[3].split('.')[1] || '').length, text: m[2] });
       else toks.push({ kind: 'pill', text: m[2] });
     } else if (m[3]) toks.push({ kind: 'outline', text: m[3] });
-    else if (m[4]) toks.push({ kind: 'dot', text: '' });
-    else toks.push({ kind: 'word', text: m[5] });
+    else if (m[4]) { const opts = m[4].split('|').map((o) => o.trim()).filter(Boolean); toks.push({ kind: 'roll', opts, text: opts[0] }); }
+    else if (m[5]) toks.push({ kind: 'dot', text: '' });
+    else toks.push({ kind: 'word', text: m[6] });
   }
   return toks;
 }
 
 const fmtNum = (v, dec) => v.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+const STICKERS = ['#ececee', '#c6f5a0', '#fbf38a', '#cfe0ff', '#ffd3c4'];
+const GLYPHS = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789#%&*+<>?/{}';
+const hash = (n) => { const x = Math.sin(n * 12.9898) * 43758.5453; return x - Math.floor(x); };
+
+// Which option a rolling word shows at t, and how far into the change to the next one it is.
+function rollState(tk, t, every) {
+  const n = tk.opts.length, e = Math.max(0.2, every);
+  const p = Math.max(0, t - tk.t0) / e;
+  const i = Math.min(n - 1, Math.floor(p));
+  const k = i >= n - 1 ? 0 : out(clamp((p - i - (1 - 0.3 / e)) / (0.3 / e), 0, 1));
+  return { i, k };
+}
 
 function drawSentence(ctx, area, d, t) {
   const { x, y, w, h } = area;
   const toks = tokenize(d.text);
   if (!toks.length) return;
+  const effect = d.effect || 'blur';
   const fs = d.size || 72;
   const font = `${d.weight || 600} ${fs}px ${UI_FONT}`;
   ctx.save();
   ctx.font = font;
-  const space = fs * 0.28, padX = fs * 0.3, pillH = fs * 1.18;
-  const gap = d.gap ?? 0.22, start = d.start ?? 0;
+  const stick = effect === 'stickers';
+  const space = stick ? -fs * 0.06 : fs * 0.28, padX = fs * 0.3, pillH = fs * 1.18;
+  const gap = d.gap ?? 0.22, start = d.start ?? 0, every = d.rollEvery ?? 0.7;
+  const mw = (s) => ctx.measureText(s).width;
   // Measure each token at full size.
   for (const tk of toks) {
     if (tk.kind === 'dot') tk.w = fs * 0.78;
-    else if (tk.kind === 'count') tk.w = Math.max(ctx.measureText(tk.pre + fmtNum(tk.from, tk.dec) + tk.post).width, ctx.measureText(tk.pre + fmtNum(tk.to, tk.dec) + tk.post).width) + padX * 2;
-    else tk.w = ctx.measureText(tk.text).width + (tk.kind === 'pill' || tk.kind === 'outline' ? padX * 2 : 0);
+    else if (tk.kind === 'count') tk.w = Math.max(mw(tk.pre + fmtNum(tk.from, tk.dec) + tk.post), mw(tk.pre + fmtNum(tk.to, tk.dec) + tk.post)) + padX * 2;
+    else if (tk.kind === 'roll') { tk.ws = tk.opts.map(mw); tk.w = Math.max(...tk.ws); }
+    else tk.w = mw(tk.text) + (tk.kind === 'pill' || tk.kind === 'outline' ? padX * 2 : 0);
+    if (stick) tk.w += padX * 2;
   }
   // Wrap into lines that fit the window.
   const lines = [[]];
@@ -56,72 +79,127 @@ function drawSentence(ctx, area, d, t) {
     if (lw + add > w && lines[lines.length - 1].length) { lines.push([]); lw = 0; }
     lines[lines.length - 1].push(tk); lw += (lines[lines.length - 1].length > 1 ? space : 0) + tk.w;
   }
-  let i = 0;
-  for (const ln of lines) for (const tk of ln) { tk.t0 = start + i * gap; i++; }
+  // Timing: one word per `gap`, or for the typewriter one letter per 1/cps.
+  const cps = d.cps || 26;
+  let i = 0, c = 0;
+  for (const ln of lines) for (const tk of ln) {
+    tk.t0 = start + i * gap; i++;
+    tk.c0 = c; tk.len = tk.kind === 'word' || tk.kind === 'accent' || tk.kind === 'roll' ? tk.text.length : 1; c += tk.len + 1;
+    if (effect === 'type') tk.t0 = start + tk.c0 / cps;
+  }
+  const typed = (t - start) * cps;
   const exitK = d.exitAt != null && d.exitAt > start ? clamp((t - d.exitAt) / 0.35, 0, 1) : 0;
-  const lineH = fs * 1.32;
+  const lineH = fs * (stick ? 1.7 : 1.32);
   const top = y + h / 2 - (lines.length * lineH) / 2 + lineH / 2;
   const accent = d.accent || '#f4f4f6';
+  const textCol = d.color || '#ffffff';
+  // How revealed a token is (0-1) and how wide it currently is.
+  const kOf = (tk) => {
+    if (effect === 'type') return typed >= tk.c0 ? 1 : 0;
+    return out(clamp((t - tk.t0) / (stick ? 0.26 : 0.32), 0, 1));
+  };
+  const widthOf = (tk, k) => {
+    if (effect === 'type') {
+      if (tk.kind === 'word' || tk.kind === 'accent' || tk.kind === 'roll') return mw((tk.kind === 'roll' ? tk.opts[0] : tk.text).slice(0, Math.max(0, Math.min(tk.len, Math.ceil(typed - tk.c0)))));
+      return tk.w;
+    }
+    if (tk.kind === 'roll') { const r = rollState(tk, t, every); const cur = tk.ws[r.i], nxt = tk.ws[Math.min(tk.opts.length - 1, r.i + 1)]; return (lerp(cur, nxt, r.k) + (stick ? padX * 2 : 0)) * (effect === 'blur' ? 0.55 + 0.45 * k : 1); }
+    return tk.w * (effect === 'blur' ? 0.55 + 0.45 * k : 1);
+  };
+  let caret = null;
   lines.forEach((ln, li) => {
     // The line re-centres as it grows: only revealed words take up room.
-    const kOf = (tk) => out(clamp((t - tk.t0) / 0.32, 0, 1));
-    let width = 0;
-    ln.forEach((tk, j) => { const k = kOf(tk); if (k > 0) width += (j ? space : 0) * Math.min(1, k * 2) + tk.w * (0.55 + 0.45 * k); });
+    let width = 0, nVis = 0;
+    ln.forEach((tk) => { const k = kOf(tk); if (k > 0) { width += (nVis ? space : 0) * Math.min(1, k * 2) + widthOf(tk, k); nVis++; } });
     let cx = d.align === 'left' ? x : x + (w - width) / 2;
     const cy = top + li * lineH;
+    let first = true;
     ln.forEach((tk, j) => {
       const k = kOf(tk);
       if (k <= 0) return;
-      cx += (j ? space : 0) * Math.min(1, k * 2);
-      const tw = tk.w * (0.55 + 0.45 * k);
+      if (!first) cx += space * Math.min(1, k * 2);
+      first = false;
+      const tw = widthOf(tk, k);
       ctx.save();
-      ctx.globalAlpha *= k * (1 - exitK);
-      const blur = (1 - k) * 10 + exitK * 14;
+      ctx.globalAlpha *= (effect === 'type' ? 1 : Math.min(1, k * 1.6)) * (1 - exitK);
+      let blur = exitK * 14, dy = 0, sc = 1;
+      if (effect === 'blur') { blur += (1 - k) * 10; dy = (1 - k) * fs * 0.32; sc = 0.55 + 0.45 * k; }
+      else if (stick) { const kb = EASINGS.back(clamp((t - tk.t0) / 0.3, 0, 1)); sc = 1.5 - 0.5 * kb; blur += (1 - k) * 6; dy = [0, 0.42, -0.22, 0.3, -0.12][j % 5] * fs; }
+      else if (effect === 'scramble') { blur += (1 - k) * 4; }
       if (canFilter && blur > 0.3) ctx.filter = `blur(${blur.toFixed(1)}px)`;
-      const rise = (1 - k) * fs * 0.32;
-      ctx.translate(cx + tw / 2, cy + rise); ctx.scale(0.55 + 0.45 * k, 0.55 + 0.45 * k); ctx.translate(-tk.w / 2, 0);
+      ctx.translate(cx + tw / 2, cy + dy); ctx.scale(sc, sc); ctx.translate(-tw / 2, 0);
       ctx.textBaseline = 'middle';
+      const inset = stick ? padX : 0;
+      if (stick) { ctx.fillStyle = (d.blocks && d.blocks.length ? d.blocks : STICKERS)[j % (d.blocks?.length || STICKERS.length)]; ctx.fillRect(0, -fs * 0.66, tw, fs * 1.32); }
       if (tk.kind === 'pill' || tk.kind === 'count') {
-        roundRect(ctx, 0, -pillH / 2, tk.w, pillH, fs * 0.22);
+        const pw = tk.w - inset * 2;
+        roundRect(ctx, inset, -pillH / 2, pw, pillH, fs * 0.22);
         ctx.fillStyle = accent; ctx.fill();
         ctx.fillStyle = d.pillText || '#0b0b0d';
         let label = tk.text;
-        if (tk.kind === 'count') { const c = out(clamp((t - tk.t0 - 0.15) / (d.countDur ?? 0.9), 0, 1)); label = tk.pre + fmtNum(lerp(tk.from, tk.to, c), tk.dec) + tk.post; }
-        ctx.textAlign = 'center'; ctx.fillText(label, tk.w / 2, fs * 0.04); ctx.textAlign = 'left';
+        if (tk.kind === 'count') { const cc = out(clamp((t - tk.t0 - 0.15) / (d.countDur ?? 0.9), 0, 1)); label = tk.pre + fmtNum(lerp(tk.from, tk.to, cc), tk.dec) + tk.post; }
+        ctx.textAlign = 'center'; ctx.fillText(label, inset + pw / 2, fs * 0.04); ctx.textAlign = 'left';
       } else if (tk.kind === 'outline') {
-        roundRect(ctx, 0, -pillH / 2, tk.w, pillH, pillH / 2);
-        ctx.strokeStyle = d.color || '#ffffff'; ctx.lineWidth = Math.max(2, fs * 0.04); ctx.stroke();
-        ctx.fillStyle = d.color || '#ffffff';
-        ctx.fillText(tk.text, padX, fs * 0.04);
+        roundRect(ctx, inset, -pillH / 2, tk.w - inset * 2, pillH, pillH / 2);
+        ctx.strokeStyle = textCol; ctx.lineWidth = Math.max(2, fs * 0.04); ctx.stroke();
+        ctx.fillStyle = textCol;
+        ctx.fillText(tk.text, inset + padX, fs * 0.04);
       } else if (tk.kind === 'dot') {
-        ctx.beginPath(); ctx.arc(tk.w / 2, 0, fs * 0.36, 0, Math.PI * 2); ctx.fillStyle = accent; ctx.fill();
+        ctx.beginPath(); ctx.arc(tw / 2, 0, fs * 0.36, 0, Math.PI * 2); ctx.fillStyle = accent; ctx.fill();
       } else {
-        ctx.fillStyle = tk.kind === 'accent' ? accent : (d.color || '#ffffff');
-        ctx.fillText(tk.text, 0, fs * 0.04);
+        const col = stick ? (d.pillText || '#0b0b0d') : (tk.kind === 'word' ? textCol : accent);
+        ctx.fillStyle = col;
+        if (tk.kind === 'roll' && effect !== 'type') {
+          // The current option slides up and out, the next comes up from below, clipped to the line.
+          const r = rollState(tk, t, every);
+          ctx.save(); ctx.beginPath(); ctx.rect(-fs * 0.2, -fs * 0.72, tw + fs * 0.4, fs * 1.44); ctx.clip();
+          ctx.globalAlpha *= 1 - r.k; ctx.fillText(tk.opts[r.i], inset, fs * 0.04 - r.k * fs * 0.9);
+          ctx.restore();
+          if (r.k > 0) { ctx.save(); ctx.beginPath(); ctx.rect(-fs * 0.2, -fs * 0.72, tw + fs * 0.4, fs * 1.44); ctx.clip(); ctx.globalAlpha *= r.k; ctx.fillText(tk.opts[r.i + 1], inset, fs * 0.04 + (1 - r.k) * fs * 0.9); ctx.restore(); }
+        } else if (effect === 'type') {
+          const n = Math.max(0, Math.min(tk.len, Math.ceil(typed - tk.c0)));
+          const str = (tk.kind === 'roll' ? tk.opts[0] : tk.text).slice(0, n);
+          ctx.fillText(str, 0, fs * 0.04);
+          caret = { x: cx + mw(str), y: cy };
+        } else if (effect === 'scramble') {
+          const res = clamp((t - tk.t0) / 0.45, 0, 1), L = tk.text.length, solid = Math.floor(res * L);
+          let str = tk.text.slice(0, solid);
+          for (let q = solid; q < L; q++) str += tk.text[q] === ' ' ? ' ' : GLYPHS[Math.floor(hash(q * 31 + Math.floor(t * 24) + j * 7) * GLYPHS.length)];
+          ctx.fillText(str, 0, fs * 0.04);
+        } else ctx.fillText(tk.text, inset, fs * 0.04);
       }
       ctx.restore();
+      if (effect === 'type' && tk.kind !== 'word' && tk.kind !== 'accent' && tk.kind !== 'roll') caret = { x: cx + tw, y: cy };
       cx += tw;
     });
   });
+  // Typewriter caret: solid while typing, then blinks until the line leaves.
+  if (effect === 'type' && caret && t >= start && d.caret !== false) {
+    const done = typed >= c, on = !done || Math.floor((t - start - c / cps) * 2.2) % 2 === 0;
+    if (on) { ctx.globalAlpha *= 1 - exitK; ctx.fillStyle = textCol; ctx.fillRect(caret.x + fs * 0.06, caret.y - fs * 0.45, Math.max(2, fs * 0.05), fs * 0.9); }
+  }
   ctx.restore();
 }
 
 export const sentenceApp = {
   type: 'sentence', label: 'Kinetic line', group: 'Launch', chip: 'kin', size: [1500, 260], chrome: 'none',
-  blurb: 'Words blur in one by one, with pills and counters',
-  title: (d) => String(d.text || '').replace(/[*[\]{}~]/g, ''),
-  defaults: (t0) => ({ text: 'You just got [7>22] warm leads', start: +(t0 + 0.1).toFixed(2), gap: 0.22, size: 76, weight: 600, color: '#ffffff', accent: '#f4f4f6', pillText: '#0b0b0d', align: 'center', exitAt: null, countDur: 0.9 }),
+  blurb: 'Words blur in, type, slam onto blocks or decode, with pills, counters and rolling words',
+  title: (d) => String(d.text || '').replace(/\(([^()|]+)\|[^()]*\)/g, '$1').replace(/[*[\]{}~]/g, ''),
+  defaults: (t0) => ({ text: 'You just got [7>22] warm leads', start: +(t0 + 0.1).toFixed(2), gap: 0.22, size: 76, weight: 600, color: '#ffffff', accent: '#f4f4f6', pillText: '#0b0b0d', align: 'center', exitAt: null, countDur: 0.9, effect: 'blur', cps: 26, rollEvery: 0.7 }),
   times: ['start', 'exitAt'],
   fields: [
-    { key: 'text', type: 'textarea', rows: 2, label: 'Line: <code>*word*</code> colour · <code>[text]</code> pill · <code>{text}</code> outline · <code>[7&gt;22]</code> counter · <code>~</code> dot' },
+    { key: 'text', type: 'textarea', rows: 2, count: 60, label: 'Content <span class="hint"><code>[pill]</code> <code>{outline}</code> <code>*accent*</code> <code>[7&gt;22]</code> <code>(a|b|c)</code></span>' },
+    { key: 'effect', type: 'select', label: 'Animation', options: [['blur', 'Blur in word by word'], ['type', 'Typewriter'], ['stickers', 'Words on coloured blocks'], ['scramble', 'Decode (scrambled letters)']] },
     { key: 'start', type: 'time', label: 'First word at' },
-    { key: 'gap', type: 'number', label: 'Seconds between words', min: 0.05, max: 1.5, step: 0.01 },
+    { key: 'gap', type: 'number', label: 'Seconds between words', min: 0.05, max: 1.5, step: 0.01, when: (d) => d.effect !== 'type' },
+    { key: 'cps', type: 'number', label: 'Letters per second', min: 4, max: 80, step: 1, when: (d) => d.effect === 'type' },
+    { key: 'rollEvery', type: 'number', label: 'Rolling word: seconds per option', min: 0.2, max: 3, step: 0.05, when: (d) => /\([^()]*\|/.test(d.text || '') },
     { key: 'exitAt', type: 'time', label: 'Blur out at (0 = stays)' },
     { key: 'size', type: 'number', label: 'Text size', min: 20, max: 240, step: 2 },
-    { key: 'weight', type: 'select', label: 'Weight', options: [[400, 'Regular'], [500, 'Medium'], [600, 'Semibold'], [700, 'Bold']] },
+    { key: 'weight', type: 'select', label: 'Weight', options: [[400, 'Regular'], [500, 'Medium'], [600, 'Semibold'], [700, 'Bold'], [800, 'Extra bold']] },
     { key: 'color', type: 'color', label: 'Text colour' },
     { key: 'accent', type: 'color', label: 'Accent (pills, coloured words)' },
-    { key: 'pillText', type: 'color', label: 'Text inside pills' },
+    { key: 'pillText', type: 'color', label: 'Text inside pills and on blocks' },
     { key: 'align', type: 'select', label: 'Align', options: [['center', 'Centre (re-centres as it grows)'], ['left', 'Left']] },
   ],
   draw: drawSentence,
